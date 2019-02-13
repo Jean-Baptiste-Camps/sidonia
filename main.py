@@ -214,7 +214,7 @@ if __name__ == '__main__':
     for i in range(0,10):
         augm = augment(data, sources, use_morph=True, use_lemma=True, use_embeddings=True,
                        embed_data_path='data/train.tsv')
-        with open('data/synth_'+i+'.tsv', 'w') as out:
+        with open('data/synth_'+ str(i) +'.tsv', 'w') as out:
             # if use_morph == True:
             for line in augm:
                 out.write('{}\t{}\t{}\t{}\n'.format(*line[0]))

@@ -3,7 +3,7 @@ import random
 from gensim.models import Word2Vec
 from gensim.models import KeyedVectors
 
-# TODO: account for sentences (in embeddings, in data and sources, etc.)
+# TODO: account for sentences (in data and sources, etc.)
 
 def load_data(path, sentences=False):
     """
@@ -42,6 +42,10 @@ def load_embed_data(path):
             else:
             sentence.append(line[1])
 
+        #and deal with the last line
+        if not sentence == ['']:
+            data.append(sentence)
+
     return data
 
 
@@ -54,7 +58,7 @@ def augment(data, sources, use_morph=False, use_lemma=False, use_embeddings=Fals
     :param use_morph: whether to account for morphological information
     :param use_lemma: whether to account for lemma (implemented only with use_morph)
     :param use_embeddings: whether to use word embeddings to extend the previous option, with
-    the use of other lemmata with similar semantic properties
+    the use of other lemmata with similar semantic properties. ONLY WITH use_lemma
     :param embed_data_path: path to data to train embeddings (optional)
     :param pretrained_embeddings: path to pretrained embeddings.
     :return: augmented dataset
@@ -83,7 +87,26 @@ def augment(data, sources, use_morph=False, use_lemma=False, use_embeddings=Fals
     fallbacks = get_alternatives(data, use_lemma=use_lemma, use_morph=use_morph)
     for row in data:
         if not use_morph:
-            augm.append(random.sample(alternatives[row[2]], 1))
+            if use_embeddings:
+                #TODO: code redondant, à déporter vers une fonction?
+                synonyms = [i[0] for i in embs.wv.most_similar(positive=row[1])] + [row[1]]
+                # filter to keep only those that are in dic
+                valid_syns = [s for s in synonyms if s in alternatives[row[2]]]
+                if not valid_syns == []:
+                    # pick one
+                    my_syn = random.sample(valid_syns, 1)
+                    # find good alternates
+                    # NB: du coup, en filtrant avant, on pert l'indication de fréquence, qu'on aurait si on
+                    # prenait toutes les occurrences des synonymes
+                    valid_alts = [alternatives[row[2]][s] for s in my_syn]
+                    augm.append(random.sample(valid_alts[:][0], 1))  # C'est moche, à simplifier (set dans une liste)
+
+                # or use the fallback
+                # TODO: could be improved. Concatenate data and sources with this option?
+                else:
+                    augm.append(random.sample(fallbacks[row[2]][row[3]][row[1]], 1))
+            else:
+                augm.append(random.sample(alternatives[row[2]], 1))
 
         if use_morph and not use_lemma:
             augm.append(random.sample(alternatives[row[2]][row[3]], 1))
@@ -118,6 +141,8 @@ def augment(data, sources, use_morph=False, use_lemma=False, use_embeddings=Fals
     return augm
 
 
+#TODO: l'objet 'alternatives' devient trop fluctuant... Il faudra peut-être en faire une classe.
+# En plus, on a du code redondant, qu'il faudrait peut-être déporter vers une fonction
 def get_alternatives(sources, use_morph=False, use_lemma=False):
     """
     Creates sets of alternatives for each available category (now: POS only)
@@ -130,7 +155,15 @@ def get_alternatives(sources, use_morph=False, use_lemma=False):
     POS = {i[2] for i in sources}
     for tag in POS:
         if not use_morph:
-            alternatives[tag] = {tuple(r[0:3]) for r in sources if r[2] == tag}
+            if not use_lemma:
+                alternatives[tag] = {tuple(r[0:3]) for r in sources if r[2] == tag}
+
+            if use_lemma:
+                alternatives[tag] = dict()
+                entries = {tuple(r[0:3]) for r in sources if r[2] == tag}
+                lemmata = {i[1] for i in entries}
+                for l in lemmata:
+                    alternatives[tag][l] = {tuple(r) for r in entries if r[1] == l}
 
         if use_morph:
             alternatives[tag] = dict()
@@ -163,13 +196,26 @@ if __name__ == '__main__':
     augm = augment(data, sources, use_morph=True, use_lemma=True, use_embeddings=True, pretrained_embeddings='embeds/embeds_fro.txt')
 
     # other corpus
-    data = load_data('data/data.tsv')
-    sources = load_data('data/class-src.tsv')
+    data = load_data('data/train.tsv')
+    sources = load_data('data/train.tsv')
     sources = data+sources
+
     augm = augment(data, sources, use_morph=True, use_lemma=True, use_embeddings=True, embed_data_path='data/class-embeds.tsv')
+    #augm = augment(data, sources, use_morph=False, use_lemma=True, use_embeddings=True,
+    #               embed_data_path='data/class-embeds.tsv')
 
     with open('data/out.tsv', 'w') as out:
         #if use_morph == True:
         for line in augm:
             out.write('{}\t{}\t{}\t{}\n'.format(*line[0]))
-            #out.write(str(line))
+            #out.write('{}\t{}\t{}\n'.format(*line[0]))
+
+
+    for i in range(0,10):
+        augm = augment(data, sources, use_morph=True, use_lemma=True, use_embeddings=True,
+                       embed_data_path='data/train.tsv')
+        with open('data/synth_'+i+'.tsv', 'w') as out:
+            # if use_morph == True:
+            for line in augm:
+                out.write('{}\t{}\t{}\t{}\n'.format(*line[0]))
+
